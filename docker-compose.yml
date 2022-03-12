@@ -1,0 +1,98 @@
+version: "3.3"
+
+services:
+  traefik:
+    image: "traefik:v2.6"
+    container_name: traefik
+    
+    command:
+      - --log.level=DEBUG
+      - --api.insecure=true
+      - --providers.docker
+      - --entrypoints.web.address=:80
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --entryPoints.websecure.address=:443
+
+    ports:
+      - "80:80"
+      - "443:443"
+      # - "8080:8080"
+      
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/certs:/etc/certs
+      - ./data/traefik/dynamic/certs-traefik.yml:/etc/traefik/dynamic/certs-traefik.yml
+
+    labels:
+      trafik.enable: true
+      traefik.http.routers.dash.rule: Host(`${TRAEFIK_URL}`)
+      traefik.http.routers.dash.service: api@internal
+      traefik.http.routers.dash.entrypoints: websecure
+      traefik.http.routers.dash.tls: true
+      # traefik.http.routers.dash.middlewares: auth-traefik        
+      # traefik.http.middlewares.auth-traefik.basicauth.users: "admin:$apr1$HQsfMiKr$WxPS.6l13UzjV0m2zPIUG0"
+
+  # ------------
+  # EXAMPLE app
+  # ------------
+  whoami:
+      image: "traefik/whoami"
+      container_name: "simple-service"
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.whoami.rule=Host(`whoami.example.lo`)"
+        - "traefik.http.routers.whoami.entrypoints=websecure"
+        - "traefik.http.routers.whoami.tls=true"
+
+
+  bitwarden:
+    image: vaultwarden/server:latest
+    container_name: bitwarden
+    restart: unless-stopped
+    environment:
+      WEBSOCKET_ENABLED: "true" # Required to use websockets
+    labels:
+      - traefik.enable=true
+      # - traefik.docker.network=traefik
+      - traefik.http.middlewares.redirect-https.redirectScheme.scheme=https
+      - traefik.http.middlewares.redirect-https.redirectScheme.permanent=true
+      - traefik.http.routers.bitwarden-ui-https.rule=Host(`${BITWARDEN_URL}`)
+      - traefik.http.routers.bitwarden-ui-https.entrypoints=websecure
+      - traefik.http.routers.bitwarden-ui-https.tls=true
+      - traefik.http.routers.bitwarden-ui-https.service=bitwarden-ui
+      - traefik.http.routers.bitwarden-ui-http.rule=Host(`${BITWARDEN_URL}`)
+      - traefik.http.routers.bitwarden-ui-http.entrypoints=web
+      - traefik.http.routers.bitwarden-ui-http.middlewares=redirect-https
+      - traefik.http.routers.bitwarden-ui-http.service=bitwarden-ui
+      - traefik.http.services.bitwarden-ui.loadbalancer.server.port=80
+      - traefik.http.routers.bitwarden-websocket-https.rule=Host(`${BITWARDEN_URL}`) && Path(`/notifications/hub`)
+      - traefik.http.routers.bitwarden-websocket-https.entrypoints=websecure
+      - traefik.http.routers.bitwarden-websocket-https.tls=true
+      - traefik.http.routers.bitwarden-websocket-https.service=bitwarden-websocket
+      - traefik.http.routers.bitwarden-websocket-http.rule=Host(`${BITWARDEN_URL}`) && Path(`/notifications/hub`)
+      - traefik.http.routers.bitwarden-websocket-http.entrypoints=web
+      - traefik.http.routers.bitwarden-websocket-http.middlewares=redirect-https
+      - traefik.http.routers.bitwarden-websocket-http.service=bitwarden-websocket
+      - traefik.http.services.bitwarden-websocket.loadbalancer.server.port=3012
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # - ./portainer-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer.rule=Host(`${PORTAINER_URL}`)"
+      - "traefik.http.routers.portainer.entrypoints=websecure"
+      - "traefik.http.routers.portainer.tls=true"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+networks:
+  default:
+    name: traefiknet
+    external: true

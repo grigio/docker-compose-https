@@ -1,0 +1,6 @@
+tls:
+  certificates:
+    - certFile: /etc/certs/wildcard_example.com.cer
+      keyFile: /etc/certs/wildcard_example.com.key
+      stores:
+        - default
